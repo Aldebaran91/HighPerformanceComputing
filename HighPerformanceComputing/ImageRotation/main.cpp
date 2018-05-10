@@ -19,6 +19,7 @@
 #include <iostream>
 #include <fstream>
 #include "tga.h"
+#include <cmath>
 
 int main(int argc, char **argv) {
 	const std::string KERNEL_FILE = "kernel.cl";
@@ -85,18 +86,22 @@ int main(int argc, char **argv) {
 			&image.imageData[0]); // pointer to input
 		queue.enqueueWriteBuffer(bufferB, CL_TRUE, 0, image.imageData.size() * sizeof(unsigned char), &imageOutput.imageData[0]);
 
+		float degrees = 180.0f;
+		float sinTheta = (float)sin(degrees * CL_M_PI / 180.0f);
+		float cosTheta = (float)cos(degrees * CL_M_PI / 180.0f);
+
 		cl::Kernel addKernel(program, "image_rotate", &err);
 		addKernel.setArg(0, bufferA);
 		addKernel.setArg(1, bufferB);
 		addKernel.setArg(2, (int)image.width);
 		addKernel.setArg(3, (int)image.height);
-		addKernel.setArg(4, 0);
-		addKernel.setArg(5, 0);
+		addKernel.setArg(4, sinTheta);
+		addKernel.setArg(5, cosTheta);
 
 		// launch add kernel
 		// Run the kernel on specific ND range
-		cl::NDRange global(1024);
-		cl::NDRange local(1); //make sure local range is divisible by global range
+		cl::NDRange global(1024, 1024);
+		cl::NDRange local(1, 1); //make sure local range is divisible by global range
 		cl::NDRange offset(0);
 		std::cout << "Calling 'image_rotate' kernel" << std::endl;
 		queue.enqueueNDRangeKernel(addKernel, offset, global, local);
