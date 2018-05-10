@@ -95,10 +95,10 @@ int main(int argc, char **argv) {
 
 		// launch add kernel
 		// Run the kernel on specific ND range
-		cl::NDRange global(image.imageData.size());
+		cl::NDRange global(1024);
 		cl::NDRange local(1); //make sure local range is divisible by global range
 		cl::NDRange offset(0);
-		std::cout << "call 'image_rotate' kernel" << std::endl;
+		std::cout << "Calling 'image_rotate' kernel" << std::endl;
 		queue.enqueueNDRangeKernel(addKernel, offset, global, local);
 
 		// read back result
@@ -106,6 +106,8 @@ int main(int argc, char **argv) {
 			imageOutput.imageData.size() * sizeof(unsigned char), &imageOutput.imageData[0]);
 
 		tga::saveTGA(imageOutput, "output.tga");
+
+		std::cout << "Exported image!";
 	}
 	catch (cl::Error err) {
 		// error handling
