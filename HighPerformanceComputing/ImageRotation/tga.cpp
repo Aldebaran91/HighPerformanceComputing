@@ -10,7 +10,6 @@ const unsigned char uTGAcompare[12] = { 0,0, 2,0,0,0,0,0,0,0,0,0 };
 // Compressed TGA Header
 const unsigned char cTGAcompare[12] = { 0,0,10,0,0,0,0,0,0,0,0,0 };
 
-
 bool tga::saveTGA(const TGAImage& image, const char * filename)
 {
 	const unsigned int bytesPerPixel = image.bpp / 8;
