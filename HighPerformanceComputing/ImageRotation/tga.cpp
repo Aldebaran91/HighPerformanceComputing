@@ -62,7 +62,6 @@ bool tga::saveTGA(const TGAImage& image, const char * filename)
 // Load A TGA File!
 bool tga::LoadTGA(TGAImage * image, const char * filename)
 {
-
 	tga::TGAHeader tgaheader;				// Used To Store Our File Header
 	tga::TGA tga_;					// Used To Store File Information
 
@@ -82,8 +81,6 @@ bool tga::LoadTGA(TGAImage * image, const char * filename)
 		fclose(fTGA);
 		return false;				// Return False If It Fails
 	}
-
-
 
 	// If The File Header Matches The Uncompressed Header
 	if (memcmp(uTGAcompare, &tgaheader, sizeof(tgaheader)) == 0)
