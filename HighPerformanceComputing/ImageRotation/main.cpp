@@ -28,6 +28,22 @@ int main(int argc, char **argv) {
 	std::vector<cl::Device> devices;
 
 	try {
+		float degrees = 5.0f;
+		std::string filename = "1024.tga";
+		tga::TGAImage image, imageOutput;
+
+		std::cout << "Rotation (example -> 32): ";
+		std::cin >> degrees;
+		std::cout << "Filename (example -> 1024.tga): ";
+		std::cin >> filename;
+
+		bool loaded = tga::LoadTGA(&image, filename.c_str());
+		imageOutput.imageData.resize(image.imageData.size());
+		imageOutput.bpp = image.bpp;
+		imageOutput.height = image.height;
+		imageOutput.type = image.type;
+		imageOutput.width = image.width;
+		std::cout << "Loaded picture" << std::endl;
 
 		// get available platforms ( NVIDIA, Intel, AMD,...)
 		std::vector<cl::Platform> platforms;
@@ -63,15 +79,6 @@ int main(int argc, char **argv) {
 		cl::Kernel kernel(program, "image_rotate", &err);
 		cl::Event event;
 		cl::CommandQueue queue(context, devices[0], 0, &err);
-		tga::TGAImage image, imageOutput;
-		const char* filename = "1024.tga";
-
-		bool loaded = tga::LoadTGA(&image, filename);
-		imageOutput.imageData.resize(image.imageData.size());
-		imageOutput.bpp = image.bpp;
-		imageOutput.height = image.height;
-		imageOutput.type = image.type;
-		imageOutput.width = image.width;
 
 		// input buffers
 		cl::Buffer bufferA = cl::Buffer(context, CL_MEM_READ_ONLY, image.imageData.size() * sizeof(unsigned char));
@@ -82,11 +89,10 @@ int main(int argc, char **argv) {
 			bufferA, // which buffer to write to
 			CL_TRUE, // block until command is complete
 			0, // offset
-			image.imageData.size() * sizeof(unsigned char), // size of write 
+			image.imageData.size() * sizeof(unsigned char), // size of write
 			&image.imageData[0]); // pointer to input
 		queue.enqueueWriteBuffer(bufferB, CL_TRUE, 0, image.imageData.size() * sizeof(unsigned char), &imageOutput.imageData[0]);
 
-		float degrees = 180.0f;
 		float sinTheta = (float)sin(degrees * CL_M_PI / 180.0f);
 		float cosTheta = (float)cos(degrees * CL_M_PI / 180.0f);
 
@@ -100,19 +106,20 @@ int main(int argc, char **argv) {
 
 		// launch add kernel
 		// Run the kernel on specific ND range
-		cl::NDRange global(1024, 1024);
+		cl::NDRange global(image.width, image.height);
 		cl::NDRange local(1, 1); //make sure local range is divisible by global range
 		cl::NDRange offset(0);
-		std::cout << "Calling 'image_rotate' kernel" << std::endl;
+		std::cout << "Rotating image" << std::endl;
 		queue.enqueueNDRangeKernel(addKernel, offset, global, local);
 
 		// read back result
 		queue.enqueueReadBuffer(bufferB, CL_TRUE, 0,
 			imageOutput.imageData.size() * sizeof(unsigned char), &imageOutput.imageData[0]);
+		std::cout << "Reading result" << std::endl;
 
 		tga::saveTGA(imageOutput, "output.tga");
 
-		std::cout << "Exported image!";
+		std::cout << "Image exported";
 	}
 	catch (cl::Error err) {
 		// error handling
@@ -131,8 +138,5 @@ int main(int argc, char **argv) {
 			<< ")"
 			<< std::endl;
 	}
-
-	std::string str;
-	std::getline(std::cin, str);
 	return err;
 }
