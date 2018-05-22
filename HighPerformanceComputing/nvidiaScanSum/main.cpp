@@ -18,8 +18,8 @@
 #include <cstdlib>
 #include <iostream>
 #include <fstream>
-#include "tga.h"
 #include <cmath>
+#include <stdio.h>
 
 int main(int argc, char **argv) {
 	const std::string KERNEL_FILE = "kernel.cl";
@@ -28,22 +28,9 @@ int main(int argc, char **argv) {
 	std::vector<cl::Device> devices;
 
 	try {
-		float degrees = 5.0f;
-		std::string filename = "1024.tga";
-		tga::TGAImage image, imageOutput;
-
-		std::cout << "Rotation (example -> 32): ";
-		std::cin >> degrees;
-		std::cout << "Filename (example -> 1024.tga): ";
-		std::cin >> filename;
-
-		bool loaded = tga::LoadTGA(&image, filename.c_str());
-		imageOutput.imageData.resize(image.imageData.size());
-		imageOutput.bpp = image.bpp;
-		imageOutput.height = image.height;
-		imageOutput.type = image.type;
-		imageOutput.width = image.width;
-		std::cout << "Loaded picture" << std::endl;
+		std::vector<int> input, output;
+		input.assign({ 3, 1, 7, 0, 4, 1, 6, 3 });
+		output.resize(input.size());
 
 		// get available platforms ( NVIDIA, Intel, AMD,...)
 		std::vector<cl::Platform> platforms;
@@ -76,49 +63,39 @@ int main(int argc, char **argv) {
 		program = cl::Program(context, source);
 		program.build(devices);
 		//create kernels
-		cl::Kernel kernel(program, "image_rotate", &err);
+		cl::Kernel kernel(program, "scan", &err);
 		cl::Event event;
 		cl::CommandQueue queue(context, devices[0], 0, &err);
 
 		// input buffers
-		cl::Buffer bufferA = cl::Buffer(context, CL_MEM_READ_ONLY, image.imageData.size() * sizeof(unsigned char));
-		cl::Buffer bufferB = cl::Buffer(context, CL_MEM_WRITE_ONLY, image.imageData.size() * sizeof(unsigned char));
+		cl::Buffer bufferA = cl::Buffer(context, CL_MEM_READ_ONLY, input.size() * sizeof(int));
+		cl::Buffer bufferB = cl::Buffer(context, CL_MEM_WRITE_ONLY, output.size() * sizeof(int));
 
 		// fill buffers
 		queue.enqueueWriteBuffer(
 			bufferA, // which buffer to write to
 			CL_TRUE, // block until command is complete
 			0, // offset
-			image.imageData.size() * sizeof(unsigned char), // size of write
-			&image.imageData[0]); // pointer to input
-		queue.enqueueWriteBuffer(bufferB, CL_TRUE, 0, image.imageData.size() * sizeof(unsigned char), &imageOutput.imageData[0]);
+			input.size() * sizeof(int), // size of write
+			&input[0]); // pointer to input
+		queue.enqueueWriteBuffer(bufferB, CL_TRUE, 0, input.size() * sizeof(int), &input[0]);
 
-		float sinTheta = (float)sin(degrees * CL_M_PI / 180.0f);
-		float cosTheta = (float)cos(degrees * CL_M_PI / 180.0f);
-
-		cl::Kernel addKernel(program, "image_rotate", &err);
+		cl::Kernel addKernel(program, "scan", &err);
 		addKernel.setArg(0, bufferA);
 		addKernel.setArg(1, bufferB);
-		addKernel.setArg(2, sinTheta);
-		addKernel.setArg(3, cosTheta);
+		addKernel.setArg(2, input.size());
 
 		// launch add kernel
 		// Run the kernel on specific ND range
-		cl::NDRange global(image.width, image.height);
-		cl::NDRange local(1, 1); //make sure local range is divisible by global range
-		cl::NDRange offset(0);
-		cl::NDRange global_work_size(image.width, image.height);
-		std::cout << "Rotating image" << std::endl;
-		queue.enqueueNDRangeKernel(addKernel, offset, global, local);
+		cl::NDRange global(input.size());
+		cl::NDRange local(input.size());
+		std::cout << "nvidia Scan Sum" << std::endl;
+		queue.enqueueNDRangeKernel(addKernel, 0, global, local);
 
 		// read back result
 		queue.enqueueReadBuffer(bufferB, CL_TRUE, 0,
-			imageOutput.imageData.size() * sizeof(unsigned char), &imageOutput.imageData[0]);
+			output.size() * sizeof(int), &output[0]);
 		std::cout << "Reading result" << std::endl;
-
-		tga::saveTGA(imageOutput, "output.tga");
-
-		std::cout << "Image exported";
 	}
 	catch (cl::Error err) {
 		// error handling

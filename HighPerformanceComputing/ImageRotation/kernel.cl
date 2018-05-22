@@ -1,13 +1,13 @@
 __kernel void image_rotate(
 	__global float * src_data,
 	__global float * dest_data,
-	int W, 
-	int H,
 	float sinTheta,
 	float cosTheta)
 {
 	const int ix = get_global_id(0);
 	const int iy = get_global_id(1);
+	int W = get_global_size(0);
+	int H = get_global_size(1);
 	int dest = W * iy + ix;
 	int w2 = W / 2;
 	int h2 = H / 2;
