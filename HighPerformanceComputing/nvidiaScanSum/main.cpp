@@ -30,7 +30,7 @@ int main(int argc, char **argv) {
 	try {
 		std::vector<int> input, output;
 		input.assign({ 3, 1, 7, 0, 4, 1, 6, 3 });
-		output.resize(input.size());
+		output.resize(input.size() + 1);
 
 		// get available platforms ( NVIDIA, Intel, AMD,...)
 		std::vector<cl::Platform> platforms;
