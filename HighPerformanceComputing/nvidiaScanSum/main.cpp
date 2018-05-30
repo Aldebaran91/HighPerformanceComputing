@@ -30,7 +30,7 @@ int main(int argc, char **argv) {
 	try {
 		std::vector<int> input, output;
 		input.assign({ 3, 1, 7, 0, 4, 1, 6, 3 });
-		output.resize(input.size() + 1);
+		output.resize(input.size());
 
 		// get available platforms ( NVIDIA, Intel, AMD,...)
 		std::vector<cl::Platform> platforms;
@@ -83,7 +83,7 @@ int main(int argc, char **argv) {
 		cl::Kernel addKernel(program, "scan", &err);
 		addKernel.setArg(0, bufferA);
 		addKernel.setArg(1, bufferB);
-		addKernel.setArg(2, input.size());
+		//addKernel.setArg(2, input.size());
 
 		// launch add kernel
 		// Run the kernel on specific ND range
@@ -93,8 +93,7 @@ int main(int argc, char **argv) {
 		queue.enqueueNDRangeKernel(addKernel, 0, global, local);
 
 		// read back result
-		queue.enqueueReadBuffer(bufferB, CL_TRUE, 0,
-			output.size() * sizeof(int), &output[0]);
+		queue.enqueueReadBuffer(bufferB, CL_TRUE, 0, output.size() * sizeof(int), &output[0]);
 		std::cout << "Reading result" << std::endl;
 	}
 	catch (cl::Error err) {
