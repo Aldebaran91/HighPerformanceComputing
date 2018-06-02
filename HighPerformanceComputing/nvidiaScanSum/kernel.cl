@@ -29,12 +29,12 @@ __kernel void scan_nvidia(
 
 __kernel void scan(
 	__global int *input,
-	__global int *result)
+	__global int *result,
+	__local int *tmpBuffer,
+	const int n_items)
 {
-	__global int* tmpBuffer;
 	uint gid = get_global_id(0);
 	uint lid = get_local_id(0);
-	uint n_items = get_global_size(0);
 	uint dp = 1;
 
 	tmpBuffer[gid] = input[gid];

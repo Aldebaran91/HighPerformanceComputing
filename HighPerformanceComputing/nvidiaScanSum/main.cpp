@@ -41,7 +41,7 @@ int main(int argc, char **argv) {
 		}
 
 		// create a context and get available devices
-		int platFormNr = 0;
+		int platFormNr = 1;
 		cl::Platform platform = platforms[platFormNr]; // on a different machine, you may have to select a different platform!
 		cl_context_properties properties[] =
 		{ CL_CONTEXT_PLATFORM, (cl_context_properties)(platforms[platFormNr])(), 0 };
@@ -83,7 +83,8 @@ int main(int argc, char **argv) {
 		cl::Kernel addKernel(program, "scan", &err);
 		addKernel.setArg(0, bufferA);
 		addKernel.setArg(1, bufferB);
-		//addKernel.setArg(2, input.size());
+		addKernel.setArg(2, input.size(), NULL);
+		addKernel.setArg(3, input.size());
 
 		// launch add kernel
 		// Run the kernel on specific ND range
