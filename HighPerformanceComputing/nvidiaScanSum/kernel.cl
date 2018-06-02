@@ -33,44 +33,64 @@ __kernel void scan(
 	__local int *tmpBuffer,
 	const int n_items)
 {
-	uint gid = get_global_id(0);
-	uint lid = get_local_id(0);
-	uint dp = 1;
+	uint gid = get_global_id(0);	//global ID
+	uint lid = get_local_id(0);		//local ID
+	uint sumHelper = 1;				//helper var for sum jumps
 
-	tmpBuffer[gid] = input[gid];
 
+	//copy input to temp buffer
+	//tmpBuffer[lid] = input[gid];
+
+	// this is recommended... i don't really know why but it seems so be faster (ask prof)
 	tmpBuffer[2 * lid] = input[2 * gid];
 	tmpBuffer[2 * lid + 1] = input[2 * gid + 1];
 
-	for (uint s = n_items >> 1; s > 0; s >>= 1) {
-		barrier(CLK_LOCAL_MEM_FENCE);
-		if (lid < s) {
-			uint i = dp * (2 * lid + 1) - 1;
-			uint j = dp * (2 * lid + 2) - 1;
-			tmpBuffer[j] += tmpBuffer[i];
-		}
+	// GO UP
+	// loop with half jumps
+	for (uint s = n_items >> 1; s > 0; s >>= 1) 
+	{
+		barrier(CLK_LOCAL_MEM_FENCE); // wait for all threads so all use the same index multiplier
 
-		dp <<= 1;
+		if (lid < s) 
+		{
+			uint item1 = sumHelper * (2 * lid + 1) - 1;
+			uint item2 = sumHelper * (2 * lid + 2) - 1;
+			tmpBuffer[item2] += tmpBuffer[item1];
+		}
+		// double the sum index multipier
+		sumHelper <<= 1;
 	}
 
+	// AND BACK DOWN
+
+	// set last item to 0
 	if (lid == 0) tmpBuffer[n_items - 1] = 0;
 
-	for (uint s = 1; s < n_items; s <<= 1) {
-		dp >>= 1;
-		barrier(CLK_LOCAL_MEM_FENCE);
+	// start at 1 and double the index with each step
+	for (uint s = 1; s < n_items; s <<= 1) 
+	{
+		// half the sumHelper with each step
+		sumHelper >>= 1;
 
-		if (lid < s) {
-			uint i = dp * (2 * lid + 1) - 1;
-			uint j = dp * (2 * lid + 2) - 1;
+		barrier(CLK_LOCAL_MEM_FENCE); // wait for all threads so all use the same index multipier
 
-			float t = tmpBuffer[j];
-			tmpBuffer[j] += tmpBuffer[i];
-			tmpBuffer[i] = t;
+		if (lid < s) 
+		{
+			uint item1 = sumHelper * (2 * lid + 1) - 1;
+			uint item2 = sumHelper * (2 * lid + 2) - 1;
+
+			float t = tmpBuffer[item2];
+			tmpBuffer[item2] += tmpBuffer[item1];
+			tmpBuffer[item1] = t;
 		}
 	}
 
-	barrier(CLK_LOCAL_MEM_FENCE);
+	barrier(CLK_LOCAL_MEM_FENCE); // all must finish before we can write the result
 
+	//copy result back
+	//result[gid] = tmpBuffer[lid];
+
+	//same situation as before... (ask prof)
 	result[2 * gid] = tmpBuffer[2 * lid];
 	result[2 * gid + 1] = tmpBuffer[2 * lid + 1];
 }
