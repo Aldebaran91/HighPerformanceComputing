@@ -17,6 +17,7 @@
 #include <stdio.h>
 #include <assert.h>
 #include <time.h>
+#include <chrono>
 
 std::vector<int> GenerateRandomInput(int size)
 {
@@ -35,7 +36,7 @@ std::vector<int> GenerateRandomInput(int size)
 int main(int argc, const char** argv)
 {
 	cl_int err = CL_SUCCESS;
-	const int INSIZE = 1024;
+	const long INSIZE = 1024;
 	const std::string KERNEL_FILE = "kernel.cl";
 	std::vector<cl::Platform> all_platforms;
 	std::vector<cl::Device> devices;
@@ -61,7 +62,7 @@ int main(int argc, const char** argv)
 
 	cl_context_properties properties[] =
 	{ CL_CONTEXT_PLATFORM, (cl_context_properties)(platform)(), 0 };
-	context = cl::Context(CL_DEVICE_TYPE_ALL, properties);
+	context = cl::Context(CL_DEVICE_TYPE_GPU, properties);
 
 	devices = context.getInfo<CL_CONTEXT_DEVICES>();
 
@@ -84,9 +85,8 @@ int main(int argc, const char** argv)
 		cl::Program::Sources source(1, std::make_pair(sourceCode.c_str(), sourceCode.length() + 1));
 		program = cl::Program(context, source);
 		program.build({ default_device });
-
-
-		int size[1] = { INSIZE };
+		
+		auto TIME_START = std::chrono::high_resolution_clock::now();
 
 		// create buffers on device (allocate space on GPU)
 		cl::Buffer buffer_A(context, CL_MEM_READ_WRITE, sizeof(int) * INSIZE);
@@ -121,9 +121,15 @@ int main(int argc, const char** argv)
 		cl::NDRange global(INSIZE);
 		cl::NDRange local(16);
 		queue.enqueueNDRangeKernel(kernel, 0, global, local);
-
-
+		
 		queue.enqueueReadBuffer(buffer_B, CL_TRUE, 0, sizeof(int)*INSIZE, output);
+
+		auto TIME_END = std::chrono::high_resolution_clock::now();
+
+		std::cout << "Total time: " << 
+			std::chrono::duration_cast<std::chrono::milliseconds>(TIME_END - TIME_START).count() <<
+			"ms" <<
+			std::endl ;
 
 		std::cout << "INPUT\n" << std::endl;
 
@@ -134,10 +140,10 @@ int main(int argc, const char** argv)
 
 		std::cout << "\n\nOUTPUT\n";
 
-		for (int i = 0; i < INSIZE; ++i)
+	/*	for (int i = 0; i < INSIZE; ++i)
 		{
 			std::cout << output[i] << " \n ";
-		}
+		}*/
 
 		std::cin.get();
 	}
