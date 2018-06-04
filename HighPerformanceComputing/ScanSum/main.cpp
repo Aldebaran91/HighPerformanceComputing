@@ -38,35 +38,37 @@ int main(int argc, const char** argv)
 	const int INSIZE = 1024;
 	const std::string KERNEL_FILE = "kernel.cl";
 	std::vector<cl::Platform> all_platforms;
-	cl::Platform::get(&all_platforms);
+	std::vector<cl::Device> devices;
+	cl::Platform platform;
+	cl::Context context;
 	cl::Program program;
-
-
+	
+	// OPENCL INIT
+	cl::Platform::get(&all_platforms);
 	if (all_platforms.size() == 0)
 	{
 		std::cout << " No platforms found. Check OpenCL installation!\n";
 		return err;
 	}
-
-	cl::Platform default_platform = all_platforms[0];
-	std::cout << "Using platform: " << default_platform.getInfo<CL_PLATFORM_NAME>() << "\n";
-
-	// get default device (CPUs, GPUs) of the default platform
-	std::vector<cl::Device> all_devices;
-	default_platform.getDevices(CL_DEVICE_TYPE_ALL, &all_devices);
-	if (all_devices.size() == 0) {
-		std::cout << " No devices found. Check OpenCL installation!\n";
-		exit(1);
+	else if (all_platforms.size() == 1)
+	{
+		platform = all_platforms[0];
+	}
+	else
+	{
+		platform = all_platforms[1];
 	}
 
+	cl_context_properties properties[] =
+	{ CL_CONTEXT_PLATFORM, (cl_context_properties)(platform)(), 0 };
+	context = cl::Context(CL_DEVICE_TYPE_ALL, properties);
+
+	devices = context.getInfo<CL_CONTEXT_DEVICES>();
+
 	// use device[1] because that's a GPU; device[0] is the CPU
-	cl::Device default_device = all_devices[0];
+	cl::Device default_device = devices[0];
 	std::cout << "Using device: " << default_device.getInfo<CL_DEVICE_NAME>() << "\n";
-
-	// a context is like a "runtime link" to the device and platform;
-	// i.e. communication is possible
-	cl::Context context({ default_device });
-
+	
 	try
 	{
 		// load and build the kernel
