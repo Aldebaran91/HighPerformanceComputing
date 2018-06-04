@@ -2,19 +2,29 @@
 #define GRP_SHIFT 8
 #define BANK_OFFSET(n) (((n) >> WARP_SHIFT) + ((n) >> GRP_SHIFT))
 
+__kernel void predicateKernel_greater(
+	__global const int* input, 
+	__global int* output, 
+	const int thresh)
+{
+	const int offset = get_group_id(0) * get_local_size(0);
+	const int lid = get_local_id(0);
+	output[lid + offset] = input[lid + offset] > thresh ? 1 : 0;
+}
+
 __kernel void blelloch(
-	__global const uint* input,
-	__global uint* output,
-	uint bin_size,
-	__local uint* temp
+	__global const int* input,
+	__global int* output,
+	__local int* temp,
+	uint bin_size
 )
 {
 	int lid = get_local_id(0);
-	uint binId = get_group_id(0);
+	int binId = get_group_id(0);
 	int n = get_local_size(0) * 2;
 
-	uint group_offset = binId * bin_size;
-	uint maxval = 0;
+	int group_offset = binId * bin_size;
+	int maxval = 0;
 	do
 	{
 		// calculate array indices and offsets to avoid SLM bank conflicts
@@ -62,7 +72,7 @@ __kernel void blelloch(
 				ai += BANK_OFFSET(ai);
 				bi += BANK_OFFSET(bi);
 
-				uint t = temp[ai];
+				int t = temp[ai];
 				temp[ai] = temp[bi];
 				temp[bi] += t;
 			}
@@ -79,4 +89,23 @@ __kernel void blelloch(
 		maxval += temp[n - 1 + BANK_OFFSET(n - 1)] + input[group_offset + n - 1];
 		group_offset += n;
 	} while (group_offset < (binId + 1) * bin_size);
+}
+
+__kernel void scatter(
+	__global const int* restrict input,
+	__global const int* restrict addr,
+	__global const int* restrict mask,
+	__global int* output
+)
+{
+	const int offset = get_group_id(0) * get_local_size(0);
+	const int lid = get_local_id(0);
+
+	printf("lid = %d / offset = %d / mask = %d\n", lid, offset, mask[lid + offset]);
+
+	if (mask[lid + offset] == 1)
+	{
+		printf("addr = %d / input = %d\n", addr[lid + offset], input[lid + offset]);
+		output[addr[lid + offset]] = input[lid + offset];
+	}
 }
