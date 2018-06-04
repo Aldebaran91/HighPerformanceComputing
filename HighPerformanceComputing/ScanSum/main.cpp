@@ -17,7 +17,6 @@
 #include <stdio.h>
 #include <assert.h>
 #include <time.h>
-#include "main.h"
 
 std::vector<int> GenerateRandomInput(int size)
 {

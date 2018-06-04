@@ -7,7 +7,7 @@ Project("{8BC9CEB8-8B4A-11D0-8D11-00A0C91BC942}") = "HighPerformanceComputing", 
 EndProject
 Project("{8BC9CEB8-8B4A-11D0-8D11-00A0C91BC942}") = "ImageRotation", "ImageRotation\ImageRotation.vcxproj", "{FA676D4F-533C-430E-9CE2-15D06D0A2630}"
 EndProject
-Project("{8BC9CEB8-8B4A-11D0-8D11-00A0C91BC942}") = "nvidiaScanSum", "nvidiaScanSum\nvidiaScanSum.vcxproj", "{A2FB551C-2212-4EEE-8ECD-1E29F4A1C5EC}"
+Project("{8BC9CEB8-8B4A-11D0-8D11-00A0C91BC942}") = "ScanSum", "ScanSum\ScanSum.vcxproj", "{A2FB551C-2212-4EEE-8ECD-1E29F4A1C5EC}"
 EndProject
 Project("{8BC9CEB8-8B4A-11D0-8D11-00A0C91BC942}") = "StreamCompaction", "StreamCompaction\StreamCompaction.vcxproj", "{0585A9BE-671A-40A4-B2DA-EE74E99590E5}"
 EndProject
