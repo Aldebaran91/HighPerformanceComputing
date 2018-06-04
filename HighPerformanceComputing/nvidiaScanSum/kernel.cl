@@ -1,96 +1,82 @@
-__kernel void scan_nvidia(
-	__global int * restrict g_idata,
-	__global int * g_odata,
-	const int n)
+#define WARP_SHIFT 4
+#define GRP_SHIFT 8
+#define BANK_OFFSET(n) (((n) >> WARP_SHIFT) + ((n) >> GRP_SHIFT))
+
+__kernel void blelloch(
+	__global const uint* input,
+	__global uint* output,
+	uint bin_size,
+	__local uint* temp
+)
 {
-	__global int* temp = g_idata;
-	int thid = get_local_id(0);
-	int pout = 1, pin = 0;
-	printf("THID=%d, GLOBAL=%d \n", thid, get_global_id(0));
+	int lid = get_local_id(0);
+	uint binId = get_group_id(0);
+	int n = get_local_size(0) * 2;
 
-	temp[pout * n + thid] = (thid > 0) ? g_idata[thid - 1] : 0;
-
-	barrier(CLK_LOCAL_MEM_FENCE);
-	for (int offset = 1; offset < n; offset *= 2)
+	uint group_offset = binId * bin_size;
+	uint maxval = 0;
+	do
 	{
-		pout = 1 - pout;
-		pin = 1 - pout;
+		// calculate array indices and offsets to avoid SLM bank conflicts
+		int ai = lid;
+		int bi = lid + (n >> 1);
+		int bankOffsetA = BANK_OFFSET(ai);
+		int bankOffsetB = BANK_OFFSET(bi);
 
-		temp[pout * n + thid] = temp[pin * n + thid];
+		// load input into local memory
+		temp[ai + bankOffsetA] = input[group_offset + ai];
+		temp[bi + bankOffsetB] = input[group_offset + bi];
 
-		if (thid >= offset) {
-			temp[pout * n + thid] += temp[pin * n + thid - offset];
+		// parallel prefix sum up sweep phase
+		int offset = 1;
+		for (int d = n >> 1; d > 0; d >>= 1)
+		{
+			barrier(CLK_LOCAL_MEM_FENCE);
+			if (lid < d)
+			{
+				int ai = offset * (2 * lid + 1) - 1;
+				int bi = offset * (2 * lid + 2) - 1;
+				ai += BANK_OFFSET(ai);
+				bi += BANK_OFFSET(bi);
+				temp[bi] += temp[ai];
+			}
+			offset <<= 1;
+		}
+
+		// clear the last element
+		if (lid == 0)
+		{
+			temp[n - 1 + BANK_OFFSET(n - 1)] = 0;
+		}
+
+		// down sweep phase
+		for (int d = 1; d < n; d <<= 1)
+		{
+			offset >>= 1;
+			barrier(CLK_LOCAL_MEM_FENCE);
+
+			if (lid < d)
+			{
+				int ai = offset * (2 * lid + 1) - 1;
+				int bi = offset * (2 * lid + 2) - 1;
+				ai += BANK_OFFSET(ai);
+				bi += BANK_OFFSET(bi);
+
+				uint t = temp[ai];
+				temp[ai] = temp[bi];
+				temp[bi] += t;
+			}
 		}
 		barrier(CLK_LOCAL_MEM_FENCE);
-	}
 
-	g_odata[thid] = temp[pout * n + thid];
-}
+		//output scan result to global memory
+		output[group_offset + ai] = temp[ai + bankOffsetA] + maxval;
+		output[group_offset + bi] = temp[bi + bankOffsetB] + maxval;
 
-__kernel void scan(
-	__global int *input,
-	__global int *result,
-	__local int *tmpBuffer,
-	const int n_items)
-{
-	uint gid = get_global_id(0);	//global ID
-	uint lid = get_local_id(0);		//local ID
-	uint sumHelper = 1;				//helper var for sum jumps
+		//printf("group_offset = %d / bankOffsetA = %d / bankOffsetB = %d / maxval = %d \n", group_offset, bankOffsetA, bankOffsetB, maxval);
 
-
-	//copy input to temp buffer
-	//tmpBuffer[lid] = input[gid];
-
-	// this is recommended... i don't really know why but it seems so be faster (ask prof)
-	tmpBuffer[2 * lid] = input[2 * gid];
-	tmpBuffer[2 * lid + 1] = input[2 * gid + 1];
-
-	// GO UP
-	// loop with half jumps
-	for (uint s = n_items >> 1; s > 0; s >>= 1) 
-	{
-		barrier(CLK_LOCAL_MEM_FENCE); // wait for all threads so all use the same index multiplier
-
-		if (lid < s) 
-		{
-			uint item1 = sumHelper * (2 * lid + 1) - 1;
-			uint item2 = sumHelper * (2 * lid + 2) - 1;
-			tmpBuffer[item2] += tmpBuffer[item1];
-		}
-		// double the sum index multipier
-		sumHelper <<= 1;
-	}
-
-	// AND BACK DOWN
-
-	// set last item to 0
-	if (lid == 0) tmpBuffer[n_items - 1] = 0;
-
-	// start at 1 and double the index with each step
-	for (uint s = 1; s < n_items; s <<= 1) 
-	{
-		// half the sumHelper with each step
-		sumHelper >>= 1;
-
-		barrier(CLK_LOCAL_MEM_FENCE); // wait for all threads so all use the same index multipier
-
-		if (lid < s) 
-		{
-			uint item1 = sumHelper * (2 * lid + 1) - 1;
-			uint item2 = sumHelper * (2 * lid + 2) - 1;
-
-			float t = tmpBuffer[item2];
-			tmpBuffer[item2] += tmpBuffer[item1];
-			tmpBuffer[item1] = t;
-		}
-	}
-
-	barrier(CLK_LOCAL_MEM_FENCE); // all must finish before we can write the result
-
-	//copy result back
-	//result[gid] = tmpBuffer[lid];
-
-	//same situation as before... (ask prof)
-	result[2 * gid] = tmpBuffer[2 * lid];
-	result[2 * gid + 1] = tmpBuffer[2 * lid + 1];
+		//update cumulative prefix sum shift and histogram index for next iteration
+		maxval += temp[n - 1 + BANK_OFFSET(n - 1)] + input[group_offset + n - 1];
+		group_offset += n;
+	} while (group_offset < (binId + 1) * bin_size);
 }
