@@ -19,24 +19,14 @@
 #include <time.h>
 #include <chrono>
 
-std::vector<int> GenerateRandomInput(int size)
-{
-	srand(time(NULL));
-
-	std::vector<int> result;
-	for (int i = 0; i < size; ++i)
-	{
-		//result.push_back(rand() % 10);
-		result.push_back(i);
-	}
-
-	return result;
-}
-
 int main(int argc, const char** argv)
 {
 	cl_int err = CL_SUCCESS;
-	const long INSIZE = 1024 * 1024;
+
+	cl_uint benchmarkSize = 1024*64;
+	cl_uint INSIZE = 1024 * 1024;
+	cl_uint WORKGROUP_COUNT = 0;
+	
 	size_t maxWorkGroupSize;
 	const std::string KERNEL_FILE = "kernel.cl";
 	std::vector<cl::Platform> all_platforms;
@@ -72,6 +62,21 @@ int main(int argc, const char** argv)
 	std::cout << "Using device: " << default_device.getInfo<CL_DEVICE_NAME>() << "\n";
 
 	maxWorkGroupSize = default_device.getInfo<CL_DEVICE_MAX_WORK_GROUP_SIZE>();
+	// Bit to Byte /1024 and uint 8bits
+	long max = default_device.getInfo<CL_DEVICE_MAX_MEM_ALLOC_SIZE>() / 1024 / 8;
+	
+	std::cout << "Enter size of array (MAX " << max << ", MIN 16): ";
+	std::cin >> benchmarkSize;
+
+	if (benchmarkSize < 16 || benchmarkSize > 1048576)
+	{
+		std::cout << "Invalid size" << std::endl;
+		return -1;
+	}
+	INSIZE = benchmarkSize + benchmarkSize % maxWorkGroupSize;
+	WORKGROUP_COUNT = INSIZE / maxWorkGroupSize;
+	if (WORKGROUP_COUNT == 0)
+		WORKGROUP_COUNT = 1;
 	
 	try
 	{
@@ -92,31 +97,31 @@ int main(int argc, const char** argv)
 		auto TIME_START = std::chrono::high_resolution_clock::now();
 
 		// create buffers on device (allocate space on GPU)
-		cl::Buffer buffer_A(context, CL_MEM_READ_WRITE, sizeof(long) * INSIZE);
-		cl::Buffer buffer_B(context, CL_MEM_READ_WRITE, sizeof(long) * INSIZE);
-		cl::Buffer buffer_T(context, CL_MEM_READ_WRITE, sizeof(long) * INSIZE);
-		cl::Buffer buffer_C(context, CL_MEM_READ_WRITE, sizeof(long) * (INSIZE / maxWorkGroupSize));
-		cl::Buffer buffer_CC(context, CL_MEM_READ_WRITE, sizeof(long) * (INSIZE / maxWorkGroupSize));
+		cl::Buffer buffer_A(context, CL_MEM_READ_WRITE, sizeof(cl_uint) * INSIZE);
+		cl::Buffer buffer_B(context, CL_MEM_READ_WRITE, sizeof(cl_uint) * INSIZE);
+		cl::Buffer buffer_T(context, CL_MEM_READ_WRITE, sizeof(cl_uint) * INSIZE);
+		cl::Buffer buffer_C(context, CL_MEM_READ_WRITE, sizeof(cl_uint) * maxWorkGroupSize);
+		cl::Buffer buffer_CC(context, CL_MEM_READ_WRITE, sizeof(cl_uint) * maxWorkGroupSize);
 
-		long* input = (long*)calloc(INSIZE, sizeof(long));
-		long* output = (long*)calloc(INSIZE, sizeof(long));
+		cl_uint* input = (cl_uint*)calloc(INSIZE, sizeof(cl_uint));
+		cl_uint* output = (cl_uint*)calloc(INSIZE, sizeof(cl_uint));
 		// More allocated than needed. Software developer was to lazy.
-		long* cBlockSum = (long*)calloc(INSIZE, sizeof(long));
-		long* cBlockSum1 = (long*)calloc(INSIZE, sizeof(long));
+		cl_uint* cBlockSum1 = (cl_uint*)calloc(INSIZE, sizeof(cl_uint));
+		cl_uint* cBlockSum2 = (cl_uint*)calloc(INSIZE, sizeof(cl_uint));
 
-		for (unsigned long i = 0; i < INSIZE; ++i)
+		for (cl_uint i = 0; i < INSIZE; ++i)
 		{
 			input[i] = i;
 			output[i] = 0;
-			cBlockSum[i] = 0;
 			cBlockSum1[i] = 0;
+			cBlockSum2[i] = 0;
 		}
 
 		// create a queue (a queue of commands that the GPU will execute)
 		cl::CommandQueue queue(context, default_device);
 
 		// push write commands to queue
-		queue.enqueueWriteBuffer(buffer_A, CL_TRUE, 0, sizeof(long) * INSIZE, input);
+		queue.enqueueWriteBuffer(buffer_A, CL_TRUE, 0, sizeof(cl_uint) * INSIZE, input);
 
 		// RUN ZE KERNEL
 		cl::Kernel kernel(program, "blelloch", &err);
@@ -124,71 +129,88 @@ int main(int argc, const char** argv)
 		kernel.setArg(0, buffer_A);
 		// Output
 		kernel.setArg(1, buffer_B);
-		// Groupsize
-		kernel.setArg(2, maxWorkGroupSize);
 		// Local temp
-		kernel.setArg(3, maxWorkGroupSize * sizeof(int), NULL);
+		kernel.setArg(2, maxWorkGroupSize * sizeof(cl_uint), NULL);
 		// Block sum
-		kernel.setArg(4, buffer_C);
+		kernel.setArg(3, buffer_C);
 
+		// Set range for local and global
 		cl::NDRange global(maxWorkGroupSize);
 		cl::NDRange local(16);
-			
-		for (int i = 0; i < maxWorkGroupSize; i++) {
+		cl::NDRange global_work_size(INSIZE);
+		
+		// Execute kernel for each work group
+		for (int i = 0; i < WORKGROUP_COUNT; i++) {
 			queue.enqueueNDRangeKernel(kernel, i * maxWorkGroupSize, global, local);
 		}
 		
-		queue.enqueueReadBuffer(buffer_B, CL_TRUE, 0, sizeof(long) * INSIZE, output);
-		queue.enqueueReadBuffer(buffer_C, CL_TRUE, 0, sizeof(long) * (INSIZE / maxWorkGroupSize), cBlockSum);
+		// Read result
+		queue.enqueueReadBuffer(buffer_B, CL_TRUE, 0, sizeof(cl_uint) * INSIZE, output);
+		queue.enqueueReadBuffer(buffer_C, CL_TRUE, 0, sizeof(cl_uint) * maxWorkGroupSize, cBlockSum1);
 
-		// Kernel block sum
-		cl::Kernel kernel1(program, "blelloch", &err);
-		kernel1.setArg(0, buffer_CC);
-		kernel1.setArg(1, buffer_C);
-		kernel1.setArg(2, maxWorkGroupSize);
-		kernel1.setArg(3, maxWorkGroupSize * sizeof(int), NULL);
-		kernel1.setArg(4, buffer_B); // recycling of buffer_B
+		if (INSIZE >= 1024) {
+			// Create new kernel for block-scan-sum
+			cl::Kernel kernel1(program, "blelloch", &err);
+			// Input, contains last item of each work group
+			kernel1.setArg(0, buffer_CC);
+			// Output
+			kernel1.setArg(1, buffer_C);
+			// Local temp
+			kernel1.setArg(2, maxWorkGroupSize * sizeof(cl_uint), NULL);
+			// Recycling of buffer_B, results will be discarded
+			kernel1.setArg(3, buffer_B);
 
-		queue.enqueueWriteBuffer(buffer_CC, CL_TRUE, 0, sizeof(long) * (INSIZE / maxWorkGroupSize), cBlockSum);
-		queue.enqueueNDRangeKernel(kernel1, 0, (INSIZE / maxWorkGroupSize), local);
-		queue.enqueueReadBuffer(buffer_C, CL_TRUE, 0, sizeof(long) * (INSIZE / maxWorkGroupSize), cBlockSum1);
+			// Write block-scan-sum result into buffer
+			queue.enqueueWriteBuffer(buffer_CC, CL_TRUE, 0, sizeof(cl_uint) * maxWorkGroupSize, cBlockSum1);
+			// Execute kernel
+			queue.enqueueNDRangeKernel(kernel1, 0, maxWorkGroupSize, local);
+			// Read result
+			queue.enqueueReadBuffer(buffer_C, CL_TRUE, 0, sizeof(cl_uint) * maxWorkGroupSize, cBlockSum2);
 
-		// Kernel end result
-		cl::Kernel kernel2(program, "add", &err);
-		kernel2.setArg(0, buffer_A);
-		kernel2.setArg(1, buffer_C);
-		kernel2.setArg(2, buffer_B);
 
-		queue.enqueueWriteBuffer(buffer_A, CL_TRUE, 0, sizeof(long) * INSIZE, output);
-		queue.enqueueWriteBuffer(buffer_C, CL_TRUE, 0, sizeof(long) * (INSIZE / maxWorkGroupSize), cBlockSum1);
+			// Create kernel for adding values from block-scan-sum to output
+			cl::Kernel kernel2(program, "add", &err);
+			// Input of whole array
+			kernel2.setArg(0, buffer_A);
+			// Block-scan-sum values
+			kernel2.setArg(1, buffer_C);
+			// Final result
+			kernel2.setArg(2, buffer_B);
 
-		cl::NDRange local1(16);
-		cl::NDRange global_work_size(INSIZE);
+			// Write output and block-scan-sum to buffer
+			queue.enqueueWriteBuffer(buffer_A, CL_TRUE, 0, sizeof(cl_uint) * INSIZE, output);
+			queue.enqueueWriteBuffer(buffer_C, CL_TRUE, 0, sizeof(cl_uint) * maxWorkGroupSize, cBlockSum2);
 
-		for (int i = 0; i < maxWorkGroupSize; i++) {
-			queue.enqueueNDRangeKernel(kernel2, i * maxWorkGroupSize, global, local1);
+			cl::NDRange local1(1);
+			// Execute kernel for each work group
+			for (int i = 0; i < WORKGROUP_COUNT; i++) {
+				queue.enqueueNDRangeKernel(kernel2, i * maxWorkGroupSize, global, local1);
+			}
+
+			// Read endresult
+			queue.enqueueReadBuffer(buffer_B, CL_TRUE, 0, sizeof(cl_uint) * INSIZE, output);
 		}
-		queue.enqueueReadBuffer(buffer_B, CL_TRUE, 0, sizeof(long) * INSIZE, output);
-
 
 		auto TIME_END = std::chrono::high_resolution_clock::now();
-
 		std::cout << "Total time: " <<
 			std::chrono::duration_cast<std::chrono::milliseconds>(TIME_END - TIME_START).count() <<
 			"ms" <<
 			std::endl;
-
-		std::cout << "INPUT\n" << std::endl;
-		
-		std::cout << "\n\nOUTPUT\n";
-
-		long b = 0;
-		for (int i = 0; i < 64; ++i)
+			
+		bool wrongValue = false;
+		cl_uint b = 0;
+		for (int i = 0; i < benchmarkSize; ++i)
 		{
+			//std::cout << cBlockSum2[i] << std::endl;
 			if (b != output[i]) {
-				
+				wrongValue = true;
+				std::cout << "ERROR - EXPECTED " << b << " but got " << output[i] << " at position " << i << std::endl;
 			}
 			b += i;
+		}
+
+		if (!wrongValue) {
+			std::cout << "All calculated values are correct!" << std::endl;
 		}
 
 		std::cin.get();
@@ -209,6 +231,8 @@ int main(int argc, const char** argv)
 			<< ")"
 			<< std::endl;
 	}
+	std::string str;
+	std::getline(std::cin, str);
 
 	return err;
 }

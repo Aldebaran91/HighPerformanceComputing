@@ -9,30 +9,29 @@ __kernel void add(
 )
 {
 	uint workGroupId = get_global_id(0) / get_global_size(0);
-	output[get_global_id(0)] = input[get_global_id(0)] + sums[workGroupId] ;
+	output[get_global_id(0)] = input[get_global_id(0)] + sums[workGroupId];
 }
 
 __kernel void blelloch(
 	__global const uint* input,
 	__global uint* output,
-	uint bin_size,
 	__local uint* temp,
 	__global uint* blockSum
 )
 {
-	int lid = get_local_id(0);
+	uint lid = get_local_id(0);
 	uint binId = get_group_id(0);
-	int n = get_local_size(0) * 2;
+	uint n = get_local_size(0) * 2;
 
-	uint group_offset = binId * bin_size ;
+	uint group_offset = binId * get_global_size(0) ;
 	uint maxval = 0;
 	do
 	{
 		// calculate array indices and offsets to avoid SLM bank conflicts
-		int ai = lid;
-		int bi = lid + (n >> 1);
-		int bankOffsetA = BANK_OFFSET(ai);
-		int bankOffsetB = BANK_OFFSET(bi);
+		uint ai = lid;
+		uint bi = lid + (n >> 1);
+		uint bankOffsetA = BANK_OFFSET(ai);
+		uint bankOffsetB = BANK_OFFSET(bi);
 
 		// load input into local memory
 		temp[ai + bankOffsetA] = input[group_offset + ai];
@@ -45,8 +44,8 @@ __kernel void blelloch(
 			barrier(CLK_LOCAL_MEM_FENCE);
 			if (lid < d)
 			{
-				int ai = offset * (2 * lid + 1) - 1;
-				int bi = offset * (2 * lid + 2) - 1;
+				uint ai = offset * (2 * lid + 1) - 1;
+				uint bi = offset * (2 * lid + 2) - 1;
 				ai += BANK_OFFSET(ai);
 				bi += BANK_OFFSET(bi);
 				temp[bi] += temp[ai];
@@ -68,8 +67,8 @@ __kernel void blelloch(
 
 			if (lid < d)
 			{
-				int ai = offset * (2 * lid + 1) - 1;
-				int bi = offset * (2 * lid + 2) - 1;
+				uint ai = offset * (2 * lid + 1) - 1;
+				uint bi = offset * (2 * lid + 2) - 1;
 				ai += BANK_OFFSET(ai);
 				bi += BANK_OFFSET(bi);
 
@@ -89,8 +88,8 @@ __kernel void blelloch(
 		//update cumulative prefix sum shift and histogram index for next iteration
 		maxval += temp[n - 1 + BANK_OFFSET(n - 1)] + input[group_offset + n - 1];
 		group_offset += n;
-	} while (group_offset < (binId + 1) * bin_size);
+	} while (group_offset < (binId + 1) * get_global_size(0));
 
 	barrier(CLK_LOCAL_MEM_FENCE);
-	blockSum[binId] = output[group_offset + bin_size - 1];
+	blockSum[binId] = output[group_offset - 1] + input[group_offset - 1];
 }
