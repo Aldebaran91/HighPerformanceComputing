@@ -12,6 +12,26 @@ __kernel void predicateKernel_greater(
 	output[lid + offset] = input[lid + offset] > thresh ? 1 : 0;
 }
 
+__kernel void predicateKernel_smaller(
+	__global const int* input,
+	__global int* output,
+	const int thresh)
+{
+	const int offset = get_group_id(0) * get_local_size(0);
+	const int lid = get_local_id(0);
+	output[lid + offset] = input[lid + offset] < thresh ? 1 : 0;
+}
+
+__kernel void predicateKernel_equals(
+	__global const int* input,
+	__global int* output,
+	const int thresh)
+{
+	const int offset = get_group_id(0) * get_local_size(0);
+	const int lid = get_local_id(0);
+	output[lid + offset] = input[lid + offset] == thresh ? 1 : 0;
+}
+
 __kernel void ApplyGroupSums(
 	__global const int* input,
 	__global const int* sums,
