@@ -36,14 +36,15 @@ std::vector<int> GenerateRandomInput(int size)
 int main(int argc, const char** argv)
 {
 	cl_int err = CL_SUCCESS;
-	const long INSIZE = 1024;
+	const long INSIZE = 1024 * 1024;
+	size_t maxWorkGroupSize;
 	const std::string KERNEL_FILE = "kernel.cl";
 	std::vector<cl::Platform> all_platforms;
 	std::vector<cl::Device> devices;
 	cl::Platform platform;
 	cl::Context context;
 	cl::Program program;
-	
+
 	// OPENCL INIT
 	cl::Platform::get(&all_platforms);
 	if (all_platforms.size() == 0)
@@ -69,6 +70,8 @@ int main(int argc, const char** argv)
 	// use device[1] because that's a GPU; device[0] is the CPU
 	cl::Device default_device = devices[0];
 	std::cout << "Using device: " << default_device.getInfo<CL_DEVICE_NAME>() << "\n";
+
+	maxWorkGroupSize = default_device.getInfo<CL_DEVICE_MAX_WORK_GROUP_SIZE>();
 	
 	try
 	{
@@ -85,7 +88,7 @@ int main(int argc, const char** argv)
 		cl::Program::Sources source(1, std::make_pair(sourceCode.c_str(), sourceCode.length() + 1));
 		program = cl::Program(context, source);
 		program.build({ default_device });
-		
+
 		auto TIME_START = std::chrono::high_resolution_clock::now();
 
 		// create buffers on device (allocate space on GPU)
@@ -93,10 +96,10 @@ int main(int argc, const char** argv)
 		cl::Buffer buffer_B(context, CL_MEM_READ_WRITE, sizeof(int) * INSIZE);
 		cl::Buffer buffer_T(context, CL_MEM_READ_WRITE, sizeof(int) * INSIZE);
 
-		int input[INSIZE];
-		int output[INSIZE];
-		int temp[INSIZE];
-		for (int i = 0; i < INSIZE; ++i)
+		long* input = (long*)calloc(INSIZE, sizeof(long));
+		long* output = (long*)calloc(INSIZE, sizeof(long));
+		long* temp = (long*)calloc(INSIZE, sizeof(long));
+		for (unsigned long i = 0; i < INSIZE; ++i)
 		{
 			input[i] = i;
 			output[i] = 0;
@@ -115,21 +118,24 @@ int main(int argc, const char** argv)
 		cl::Kernel kernel(program, "blelloch", &err);
 		kernel.setArg(0, buffer_A);
 		kernel.setArg(1, buffer_B);
-		kernel.setArg(2, INSIZE);
-		kernel.setArg(3, INSIZE * sizeof(int), NULL);
+		kernel.setArg(2, maxWorkGroupSize);
+		kernel.setArg(3, maxWorkGroupSize * sizeof(int), NULL);
 
-		cl::NDRange global(INSIZE);
+		cl::NDRange global(maxWorkGroupSize);
 		cl::NDRange local(16);
-		queue.enqueueNDRangeKernel(kernel, 0, global, local);
+			
+		for (int i = 0; i < 1024; i++) {
+			queue.enqueueNDRangeKernel(kernel, i * 1024, global, local);
+		}
 		
 		queue.enqueueReadBuffer(buffer_B, CL_TRUE, 0, sizeof(int)*INSIZE, output);
 
 		auto TIME_END = std::chrono::high_resolution_clock::now();
 
-		std::cout << "Total time: " << 
+		std::cout << "Total time: " <<
 			std::chrono::duration_cast<std::chrono::milliseconds>(TIME_END - TIME_START).count() <<
 			"ms" <<
-			std::endl ;
+			std::endl;
 
 		std::cout << "INPUT\n" << std::endl;
 
@@ -140,10 +146,15 @@ int main(int argc, const char** argv)
 
 		std::cout << "\n\nOUTPUT\n";
 
-	/*	for (int i = 0; i < INSIZE; ++i)
+		long b = 0;
+		for (int i = 0; i < INSIZE; ++i)
 		{
-			std::cout << output[i] << " \n ";
-		}*/
+			if (b != output[i]) {
+				std::cout << b << std::endl;
+				std::cout << i << " " << output[i] << " \n ";
+			}
+			b += i;			
+		}
 
 		std::cin.get();
 	}
