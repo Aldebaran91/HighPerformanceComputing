@@ -18,10 +18,13 @@
 #include <assert.h>
 #include <time.h>
 #include <math.h>
+#include <chrono>
+#include <algorithm>
+
 
 // CONST
 const std::string KERNEL_FILE = "kernel.cl";
-const int SIZE_BLOCK = 16;
+const int SIZE_BLOCK = 32;
 const int SIZE_WG = 1024;
 
 // GLOBAL VARS
@@ -40,7 +43,8 @@ struct PrefixSumResult
 	std::vector<int> result;
 	std::vector<int> groupSums;
 };
-std::vector<int> stream_compaction_GPU(std::vector<int> input);
+std::vector<int> stream_compaction_GPU(std::vector<int> input, int threshold);
+std::vector<int> stream_compaction_SEQ(std::vector<int> input, int threshold);
 std::vector<int> strComGPU_Step1_Filter(std::vector<int> input, const int threshold, const std::string predicateKernel);
 std::vector<int> strComGPU_Step2_PrefixSum(std::vector<int> input);
 std::vector<int> strComGPU_Step3_Scatter(std::vector<int> input, std::vector<int> addr, std::vector<int> mask);
@@ -120,11 +124,36 @@ int main(int argc, const char** argv)
 		program = cl::Program(context, source);
 		program.build(devices);
 
+
+		int testSize = 1024;
+		
+		std::cout << "HPC OpenGL - Stream Compaction - Vonbank / Burggasser" << std::endl;
+		std::cout << "Generating testinput size = " << testSize << std::endl << std::endl;
+		std::vector<int> input = generateRandomInput(testSize);
+
+		std::cout << "Starting sequential algorithm..." << std::endl;
+		
+		auto timer_start = std::chrono::high_resolution_clock::now();
+
 		// SEQUENTIAL
+		auto output_SEQ = stream_compaction_GPU(input, 5);
+
+		auto timer_end = std::chrono::high_resolution_clock::now();
+		auto elapsed = std::chrono::duration_cast<std::chrono::milliseconds>(timer_end - timer_start).count();
+		std::cout << "Sequential algorithm finished! Time(ms) = " << elapsed << std::endl;
+
+		std::cout << "Starting OpenGL algorithm..." << std::endl;
+		timer_start = std::chrono::high_resolution_clock::now();
 
 		// GPU
-		std::vector<int> input = generateRandomInput(1024);
-		auto output = stream_compaction_GPU(input);
+		auto output_GPU = stream_compaction_GPU(input, 5);
+
+		timer_end = std::chrono::high_resolution_clock::now();
+		elapsed = std::chrono::duration_cast<std::chrono::milliseconds>(timer_end - timer_start).count();
+		
+		std::cout << "OpenGL algorithm finished! (include overhead) Time(ms) = " << elapsed << std::endl << std::endl;
+
+		std::cin.get();
 	}
 	catch (cl::Error err)
 	{
@@ -132,7 +161,18 @@ int main(int argc, const char** argv)
 	}
 }
 
-std::vector<int> stream_compaction_GPU(std::vector<int> input)
+std::vector<int> stream_compaction_SEQ(std::vector<int> input, int threshold)
+{
+	std::vector<int> result;
+	for (std::vector<int>::iterator it = input.begin(); it != input.end(); ++it)
+	{
+		if (*it > threshold)
+			result.push_back(*it);
+	}
+	return result;
+}
+
+std::vector<int> stream_compaction_GPU(std::vector<int> input, int threshold)
 {
 	// !! ask prof !!
 	// since handling everything inside one kernel doesn't work... split it
@@ -140,7 +180,7 @@ std::vector<int> stream_compaction_GPU(std::vector<int> input)
 	// !! ask prof !!
 
 	//Filter - gets condition vector
-	std::vector<int> filterResult = strComGPU_Step1_Filter(input, 5, "predicateKernel_greater");
+	std::vector<int> filterResult = strComGPU_Step1_Filter(input, threshold, "predicateKernel_greater");
 
 	//Scan - build prefix sum for condition vector
 	std::vector<int> filterAddresses = strComGPU_Step2_PrefixSum(filterResult);
@@ -190,21 +230,50 @@ std::vector<int> strComGPU_Step1_Filter(std::vector<int> input, const int thresh
 
 }
 
+ //Idead for handling stuff over 1024 elements...
+//std::vector<int> CalcGroupSums(PrefixSumResult base)
+//{
+//	PrefixSumResult result = CalcPrefixSum(base.groupSums);
+//	if (result.groupSums.size() > 1)
+//	{
+//		result.groupSums = CalcGroupSums(result);
+//	}
+//	std::vector<int> groupSums(result.result.begin() + 1, result.result.end());
+//	groupSums.push_back(result.groupSums[0]);
+//
+//	std::vector<int> output = ApplyGroupSums(base.result, groupSums);
+//	return output;
+//}
+//
+//std::vector<int> strComGPU_Step2_PrefixSum(std::vector<int> input)
+//{
+//	PrefixSumResult sumResult_Base = CalcPrefixSum(input);
+//
+//	return CalcGroupSums(sumResult_Base);
+//}
+
 std::vector<int> strComGPU_Step2_PrefixSum(std::vector<int> input)
 {
 	PrefixSumResult sumResult_Base = CalcPrefixSum(input);
 	PrefixSumResult sumResult_GroupSums = CalcPrefixSum(sumResult_Base.groupSums);
 
-	std::vector<int> result = ApplyGroupSums(sumResult_Base.result, sumResult_GroupSums.result);
-	return result;
+	std::vector<int> groupSums(sumResult_GroupSums.result.begin() + 1, sumResult_GroupSums.result.end());
+	groupSums.push_back(sumResult_GroupSums.groupSums[0]);
+
+	std::vector<int> output = ApplyGroupSums(sumResult_Base.result, groupSums);
+	return output;
 }
 
 PrefixSumResult CalcPrefixSum(std::vector<int> input)
 {
-	const std::string KERNEL = "blelloch";
+	int groupSumsSize = ceil(input.size() / SIZE_BLOCK);
+	if (groupSumsSize == 0)
+		groupSumsSize = 1;
+
+	const std::string KERNEL = "blelloch_simple";
 	PrefixSumResult sumResult;
 	sumResult.result = std::vector<int>(input.size());
-	sumResult.groupSums = std::vector<int>(ceil(input.size() / SIZE_WG));
+	sumResult.groupSums = std::vector<int>(groupSumsSize);
 
 	try
 	{
@@ -212,7 +281,7 @@ PrefixSumResult CalcPrefixSum(std::vector<int> input)
 		// create buffers on device (allocate space on GPU)
 		cl::Buffer buffer_INPUT(context, CL_MEM_READ_ONLY, sizeof(cl_int) * input.size());
 		cl::Buffer buffer_OUTPUT(context, CL_MEM_READ_WRITE, sizeof(cl_int) * input.size());
-		cl::Buffer buffer_GROUPSUMS(context, CL_MEM_READ_WRITE, sizeof(cl_int) * ceil(input.size() / SIZE_WG));
+		cl::Buffer buffer_GROUPSUMS(context, CL_MEM_READ_WRITE, sizeof(cl_int) * input.size());
 
 		// push write commands to queue
 		queue.enqueueWriteBuffer(buffer_INPUT, CL_TRUE, 0, sizeof(cl_int) * input.size(), &input[0]);
@@ -234,7 +303,7 @@ PrefixSumResult CalcPrefixSum(std::vector<int> input)
 		queue.enqueueReadBuffer(buffer_OUTPUT, CL_TRUE, 0, sizeof(cl_int) * input.size(), &sumResult.result[0], NULL, &readBufferEvent_output);
 		readBufferEvent_output.wait();
 		cl::Event readBufferEvent_groupSums;
-		queue.enqueueReadBuffer(buffer_GROUPSUMS, CL_TRUE, 0, sizeof(cl_int) * (input.size() / SIZE_WG), &sumResult.groupSums[0], NULL, &readBufferEvent_groupSums);
+		queue.enqueueReadBuffer(buffer_GROUPSUMS, CL_TRUE, 0, sizeof(cl_int) * groupSumsSize, &sumResult.groupSums[0], NULL, &readBufferEvent_groupSums);
 		readBufferEvent_groupSums.wait();
 
 	}
@@ -270,8 +339,9 @@ std::vector<int> ApplyGroupSums(std::vector<int> input, std::vector<int> groupSu
 		kernel.setArg(2, buffer_OUTPUT);
 
 		cl::NDRange global(input.size());
+		cl::NDRange local(SIZE_BLOCK);
 
-		queue.enqueueNDRangeKernel(kernel, 0, global);
+		queue.enqueueNDRangeKernel(kernel, 0, global, local);
 
 		cl::Event readBufferEvent;
 		queue.enqueueReadBuffer(buffer_OUTPUT, CL_TRUE, 0, sizeof(cl_int) * input.size(), &result[0], NULL, &readBufferEvent);
