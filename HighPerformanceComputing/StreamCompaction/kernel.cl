@@ -12,9 +12,30 @@ __kernel void predicateKernel_greater(
 	output[lid + offset] = input[lid + offset] > thresh ? 1 : 0;
 }
 
+__kernel void ApplyGroupSums(
+	__global const int* input,
+	__global const int* sums,
+	__global int* output,
+	uint bin_size
+)
+{
+	const int gId = get_group_id(0);
+	const int offset = gId * get_local_size(0);
+	const int lid = get_local_id(0);
+	output[lid + offset] = input[lid + offset] + sums[gId];
+
+	printf("lid = %d / gId = %d / offset = %d / input = %d / sums = %d\n", lid, gId, offset, input[lid + offset], sums[gId]);
+
+	/*int gid = get_global_id(0);
+	int binId = get_group_id(0);*/
+
+	//output[gid] = input[gid] + sums[binId];
+}
+
 __kernel void blelloch(
 	__global const int* input,
 	__global int* output,
+	__global int* groupSums,
 	__local int* temp,
 	uint bin_size
 )
@@ -33,7 +54,7 @@ __kernel void blelloch(
 		int bankOffsetA = BANK_OFFSET(ai);
 		int bankOffsetB = BANK_OFFSET(bi);
 
-							 // load input into local memory
+		// load input into local memory
 		temp[ai + bankOffsetA] = input[group_offset + ai];
 		temp[bi + bankOffsetB] = input[group_offset + bi];
 
@@ -89,6 +110,7 @@ __kernel void blelloch(
 		maxval += temp[n - 1 + BANK_OFFSET(n - 1)] + input[group_offset + n - 1];
 		group_offset += n;
 	} while (group_offset < (binId + 1) * bin_size);
+	groupSums[binId] = output[group_offset + bin_size - 1];
 }
 
 __kernel void scatter(
