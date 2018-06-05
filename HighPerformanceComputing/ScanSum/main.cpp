@@ -92,43 +92,84 @@ int main(int argc, const char** argv)
 		auto TIME_START = std::chrono::high_resolution_clock::now();
 
 		// create buffers on device (allocate space on GPU)
-		cl::Buffer buffer_A(context, CL_MEM_READ_WRITE, sizeof(int) * INSIZE);
-		cl::Buffer buffer_B(context, CL_MEM_READ_WRITE, sizeof(int) * INSIZE);
-		cl::Buffer buffer_T(context, CL_MEM_READ_WRITE, sizeof(int) * INSIZE);
+		cl::Buffer buffer_A(context, CL_MEM_READ_WRITE, sizeof(long) * INSIZE);
+		cl::Buffer buffer_B(context, CL_MEM_READ_WRITE, sizeof(long) * INSIZE);
+		cl::Buffer buffer_T(context, CL_MEM_READ_WRITE, sizeof(long) * INSIZE);
+		cl::Buffer buffer_C(context, CL_MEM_READ_WRITE, sizeof(long) * (INSIZE / maxWorkGroupSize));
+		cl::Buffer buffer_CC(context, CL_MEM_READ_WRITE, sizeof(long) * (INSIZE / maxWorkGroupSize));
 
 		long* input = (long*)calloc(INSIZE, sizeof(long));
 		long* output = (long*)calloc(INSIZE, sizeof(long));
-		long* temp = (long*)calloc(INSIZE, sizeof(long));
+		// More allocated than needed. Software developer was to lazy.
+		long* cBlockSum = (long*)calloc(INSIZE, sizeof(long));
+		long* cBlockSum1 = (long*)calloc(INSIZE, sizeof(long));
+
 		for (unsigned long i = 0; i < INSIZE; ++i)
 		{
 			input[i] = i;
 			output[i] = 0;
-			temp[i] = 0;
+			cBlockSum[i] = 0;
+			cBlockSum1[i] = 0;
 		}
 
 		// create a queue (a queue of commands that the GPU will execute)
 		cl::CommandQueue queue(context, default_device);
 
 		// push write commands to queue
-		queue.enqueueWriteBuffer(buffer_A, CL_TRUE, 0, sizeof(int)*INSIZE, input);
-		queue.enqueueWriteBuffer(buffer_B, CL_TRUE, 0, sizeof(int)*INSIZE, output);
-		queue.enqueueWriteBuffer(buffer_T, CL_TRUE, 0, sizeof(int)*INSIZE, temp);
+		queue.enqueueWriteBuffer(buffer_A, CL_TRUE, 0, sizeof(long) * INSIZE, input);
 
 		// RUN ZE KERNEL
 		cl::Kernel kernel(program, "blelloch", &err);
+		// Input
 		kernel.setArg(0, buffer_A);
+		// Output
 		kernel.setArg(1, buffer_B);
+		// Groupsize
 		kernel.setArg(2, maxWorkGroupSize);
+		// Local temp
 		kernel.setArg(3, maxWorkGroupSize * sizeof(int), NULL);
+		// Block sum
+		kernel.setArg(4, buffer_C);
 
 		cl::NDRange global(maxWorkGroupSize);
 		cl::NDRange local(16);
 			
-		for (int i = 0; i < 1024; i++) {
-			queue.enqueueNDRangeKernel(kernel, i * 1024, global, local);
+		for (int i = 0; i < maxWorkGroupSize; i++) {
+			queue.enqueueNDRangeKernel(kernel, i * maxWorkGroupSize, global, local);
 		}
 		
-		queue.enqueueReadBuffer(buffer_B, CL_TRUE, 0, sizeof(int)*INSIZE, output);
+		queue.enqueueReadBuffer(buffer_B, CL_TRUE, 0, sizeof(long) * INSIZE, output);
+		queue.enqueueReadBuffer(buffer_C, CL_TRUE, 0, sizeof(long) * (INSIZE / maxWorkGroupSize), cBlockSum);
+
+		// Kernel block sum
+		cl::Kernel kernel1(program, "blelloch", &err);
+		kernel1.setArg(0, buffer_CC);
+		kernel1.setArg(1, buffer_C);
+		kernel1.setArg(2, maxWorkGroupSize);
+		kernel1.setArg(3, maxWorkGroupSize * sizeof(int), NULL);
+		kernel1.setArg(4, buffer_B); // recycling of buffer_B
+
+		queue.enqueueWriteBuffer(buffer_CC, CL_TRUE, 0, sizeof(long) * (INSIZE / maxWorkGroupSize), cBlockSum);
+		queue.enqueueNDRangeKernel(kernel1, 0, (INSIZE / maxWorkGroupSize), local);
+		queue.enqueueReadBuffer(buffer_C, CL_TRUE, 0, sizeof(long) * (INSIZE / maxWorkGroupSize), cBlockSum1);
+
+		// Kernel end result
+		cl::Kernel kernel2(program, "add", &err);
+		kernel2.setArg(0, buffer_A);
+		kernel2.setArg(1, buffer_C);
+		kernel2.setArg(2, buffer_B);
+
+		queue.enqueueWriteBuffer(buffer_A, CL_TRUE, 0, sizeof(long) * INSIZE, output);
+		queue.enqueueWriteBuffer(buffer_C, CL_TRUE, 0, sizeof(long) * (INSIZE / maxWorkGroupSize), cBlockSum1);
+
+		cl::NDRange local1(16);
+		cl::NDRange global_work_size(INSIZE);
+
+		for (int i = 0; i < maxWorkGroupSize; i++) {
+			queue.enqueueNDRangeKernel(kernel2, i * maxWorkGroupSize, global, local1);
+		}
+		queue.enqueueReadBuffer(buffer_B, CL_TRUE, 0, sizeof(long) * INSIZE, output);
+
 
 		auto TIME_END = std::chrono::high_resolution_clock::now();
 
@@ -138,22 +179,16 @@ int main(int argc, const char** argv)
 			std::endl;
 
 		std::cout << "INPUT\n" << std::endl;
-
-		/*for (int i = 0; i < INSIZE; ++i)
-		{
-		std::cout << input[i] << " | ";
-		}*/
-
+		
 		std::cout << "\n\nOUTPUT\n";
 
 		long b = 0;
-		for (int i = 0; i < INSIZE; ++i)
+		for (int i = 0; i < 64; ++i)
 		{
 			if (b != output[i]) {
-				std::cout << b << std::endl;
-				std::cout << i << " " << output[i] << " \n ";
+				
 			}
-			b += i;			
+			b += i;
 		}
 
 		std::cin.get();
