@@ -230,28 +230,6 @@ std::vector<int> strComGPU_Step1_Filter(std::vector<int> input, const int thresh
 
 }
 
- //Idead for handling stuff over 1024 elements...
-//std::vector<int> CalcGroupSums(PrefixSumResult base)
-//{
-//	PrefixSumResult result = CalcPrefixSum(base.groupSums);
-//	if (result.groupSums.size() > 1)
-//	{
-//		result.groupSums = CalcGroupSums(result);
-//	}
-//	std::vector<int> groupSums(result.result.begin() + 1, result.result.end());
-//	groupSums.push_back(result.groupSums[0]);
-//
-//	std::vector<int> output = ApplyGroupSums(base.result, groupSums);
-//	return output;
-//}
-//
-//std::vector<int> strComGPU_Step2_PrefixSum(std::vector<int> input)
-//{
-//	PrefixSumResult sumResult_Base = CalcPrefixSum(input);
-//
-//	return CalcGroupSums(sumResult_Base);
-//}
-
 std::vector<int> strComGPU_Step2_PrefixSum(std::vector<int> input)
 {
 	PrefixSumResult sumResult_Base = CalcPrefixSum(input);
